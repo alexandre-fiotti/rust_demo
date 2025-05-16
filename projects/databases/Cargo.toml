@@ -11,7 +11,7 @@ path = "src/bin/main.rs"
 anyhow = "1.0.98"
 axum = "0.8.4"
 hyper = "1.6.0"
-interfaces_github = { path = "../../interfaces/github" }
+interfaces_github_stargazers = { path = "../../interfaces/github/stargazers" }
 thiserror = "2.0.12"
 tokio = { version = "1.45.0", features = ["full"] }
 tracing = "0.1.41"

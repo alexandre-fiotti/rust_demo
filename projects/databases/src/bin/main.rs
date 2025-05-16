@@ -7,7 +7,7 @@ use axum::{
 	routing::{post},
 	serve, Router,
 };
-use utils_trace::{init as tracing_init};
+use utils_trace::tracing_init;
 use thiserror::Error;
 use tracing::{error, info};
 use projects_databases::endpoints::github::repo_stars::update::index::handler as github_repo_start_update_handler;
