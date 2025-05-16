@@ -65,12 +65,12 @@ pub async fn fetch_repo_stargazers(
 
 #[derive(Debug, Error)]
 pub enum FetchRepoStargazersError {
-    #[error("RequestSend")]
+    #[error("RequestSend: {source}")]
     RequestSend {
         source: reqwest::Error,
     },
     
-    #[error("ResponseRead")]
+    #[error("ResponseRead: {source}")]
     ResponseRead {
         source: reqwest::Error,
     },

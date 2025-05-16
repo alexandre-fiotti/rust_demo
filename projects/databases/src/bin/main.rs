@@ -10,7 +10,7 @@ use axum::{
 use utils_trace::tracing_init;
 use thiserror::Error;
 use tracing::{error, info};
-use projects_databases::endpoints::github::repo_stars::update::index::handler as github_repo_start_update_handler;
+use projects_databases::endpoints::github::repo_stars::update::index::handler as github_repo_stars_update_handler;
 
 #[derive(Debug, Error)]
 pub enum MainError {
@@ -33,14 +33,12 @@ pub enum MainError {
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
-    println!("Starting server...\n");
-
     tracing_init("info")
         .map_err(|source| MainError::TracingInit { source })?;
  
 	// Set up the router
 	let app = Router::new()
-		.route("/github/repo_starts/update", post(github_repo_start_update_handler));
+		.route("/github/repo_stars/update", post(github_repo_stars_update_handler));
 
 	let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
 	let listener = tokio::net::TcpListener::bind(addr)
@@ -61,7 +59,7 @@ impl IntoResponse for MainError {
 		let err = self;
         let (status, message) = (
   				StatusCode::INTERNAL_SERVER_ERROR,
-  				format!("Server error: {}", err),
+  				format!("Server error: {err}"),
   			);
 
 		(status, message).into_response()

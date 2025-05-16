@@ -576,7 +576,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "reqwest",
- "serde",
  "serde_json",
  "thiserror",
 ]
@@ -855,6 +854,7 @@ dependencies = [
  "axum",
  "hyper",
  "interfaces_github_stargazers",
+ "serde",
  "thiserror",
  "tokio",
  "tracing",
