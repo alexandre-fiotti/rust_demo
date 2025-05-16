@@ -1,6 +1,6 @@
 [workspace]
 members = [
     "projects/databases",
-    "interfaces/github"
-]
+    "interfaces/github", 
+    "utils/trace"]
 resolver = "2"
