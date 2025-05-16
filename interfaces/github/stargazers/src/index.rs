@@ -1,4 +1,6 @@
+use chrono::{DateTime, Utc};
 use reqwest::{Client, StatusCode};
+use serde::Deserialize;
 use thiserror::Error;
 
 pub struct GitHubGraphQLResult {
@@ -75,3 +77,47 @@ pub enum FetchRepoStargazersError {
         source: reqwest::Error,
     },
 }
+
+#[derive(Debug, Deserialize)]
+pub struct GraphQLResponse {
+	pub data: RepositoryData,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RepositoryData {
+	pub repository: Option<Repository>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Repository {
+	pub stargazers: StargazerConnection,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StargazerConnection {
+	pub edges: Vec<StargazerEdge>,
+	#[serde(rename = "pageInfo")]
+	pub page_info: PageInfo,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StargazerEdge {
+	#[serde(rename = "starredAt")]
+	pub starred_at: DateTime<Utc>,
+	pub node: StargazerUser,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StargazerUser {
+	pub login: String,
+	pub email: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PageInfo {
+	#[serde(rename = "hasNextPage")]
+	pub has_next_page: bool,
+	#[serde(rename = "endCursor")]
+	pub end_cursor: Option<String>,
+}
+

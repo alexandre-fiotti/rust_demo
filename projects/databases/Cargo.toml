@@ -10,9 +10,11 @@ path = "src/bin/main.rs"
 [dependencies]
 anyhow = "1.0.98"
 axum = "0.8.4"
+chrono = "0.4.41"
 hyper = "1.6.0"
 interfaces_github_stargazers = { path = "../../interfaces/github/stargazers" }
 serde = { version = "1.0.140", features = ['derive'] }
+serde_json = "1.0.140"
 thiserror = "2.0.12"
 tokio = { version = "1.45.0", features = ["full"] }
 tracing = "0.1.41"
