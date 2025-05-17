@@ -10,7 +10,9 @@ path = "src/bin/main.rs"
 [dependencies]
 anyhow = "1.0.98"
 axum = "0.8.4"
-chrono = "0.4.41"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+diesel = { version = "2", features = ["postgres", "chrono", "uuid"] }
 hyper = "1.6.0"
 interfaces_github_stargazers = { path = "../../interfaces/github/stargazers" }
 serde = { version = "1.0.140", features = ['derive'] }
