@@ -1,10 +1,9 @@
--- Your SQL goes here
 CREATE TABLE stars (
-    id UUID PRIMARY KEY,
     repository_id UUID NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
     stargazer TEXT NOT NULL,
-    email TEXT,
     starred_at TIMESTAMP NOT NULL,
-    fetched_at TIMESTAMP NOT NULL,
-    UNIQUE (repository_id, stargazer, starred_at)
+    fetched_at TIMESTAMP NOT NULL
 );
+
+ALTER TABLE stars ADD CONSTRAINT stars_pkey PRIMARY KEY (repository_id, stargazer);
+CREATE INDEX idx_stars_repo_starred_at ON stars (repository_id, starred_at);

@@ -1,109 +1,197 @@
 use axum::{
-	extract::Json,
-	http::{Response, StatusCode},
-	response::IntoResponse,
-	body::Body,
+    extract::{Extension, Json},
+    http::StatusCode,
+    response::IntoResponse,
 };
+use chrono::{NaiveDateTime, Utc};
 use interfaces_github_stargazers::index::{
-	fetch_repo_stargazers, FetchRepoStargazersError, GitHubGraphQLResult, GraphQLResponse};
+    fetch_repo_stargazers, FetchRepoStargazersError, GitHubGraphQLResult, GraphQLResponse,
+    PageInfo, StargazerEdge,
+};
 use serde::Deserialize;
 use thiserror::Error;
-use chrono::NaiveDate;
-use std::collections::BTreeMap;
+use uuid::Uuid;
+use diesel::PgConnection;
 
+use crate::db::{
+	    repository::{
+	        models::NewRepository,
+	        queries::{insert_repository, InsertRepositoryError},
+	    },
+	    star::{
+	        models::NewStar,
+	        queries::{insert_star, InsertStarError},
+	    }, PgPool,
+	};
+
+#[derive(Debug, Error)]
+pub enum HandlerError {
+	#[error("GetConnectionFromPool: {source}")]
+	GetConnectionFromPool {
+		#[from]
+		source: r2d2::Error,
+	},
+    #[error(transparent)]
+    SyncRepoStargazers{ 
+		#[from] 
+		source: SyncRepoStargazersError 
+	},
+}
+
+impl IntoResponse for HandlerError {
+	fn into_response(self) -> axum::response::Response {
+		match self {
+			HandlerError::SyncRepoStargazers{ source } => (StatusCode::INTERNAL_SERVER_ERROR, source.to_string()).into_response(),
+            _ => StatusCode::NOT_FOUND.into_response(),
+        }
+    }
+}
+
+/// JSON payload expected by the endpoint.
 #[derive(Deserialize)]
 pub struct RepoQuery {
 	token: String,
 	owner: String,
-	name: String,
+	name:  String,
+}
+
+
+/// Axum handler: POST /sync-stars
+pub async fn handler(
+    Extension(pool): Extension<PgPool>,
+    Json(input): Json<RepoQuery>,
+) -> impl IntoResponse {
+ 	let mut conn = pool.get().map_err(|source| { HandlerError::GetConnectionFromPool{ source }})?;
+
+    sync_repo_stargazers(&mut conn, &input).await.map_err(|source| { HandlerError::SyncRepoStargazers{ source } })
 }
 
 #[derive(Debug, Error)]
-pub enum HandlerError {
-	#[error("Request to GitHub failed")]
-	RequestFail {
-		source: FetchAndAggregateStargazersPerDayError,
+pub enum SyncRepoStargazersError {
+	#[error("FetchChunkOfStarsFromRepo: {source}")]
+	FetchChunkOfStarsFromRepo{
+		#[from] 
+		source: FetchChunkOfStarsFromRepoError
+	},
+	#[error("InsertRepository: {source}")]
+	InsertRepository{
+		#[from] 
+		source: InsertRepositoryError
+	},
+	#[error("UpsertStars: {source}")]
+	UpsertStars {
+		#[from] 
+		source: UpsertStarsError
 	},
 }
 
-pub async fn handler(Json(input): Json<RepoQuery>) -> impl IntoResponse {
-	let stars_per_day = fetch_and_aggregate_stargazers_per_day(
-		&input.token,
-		&input.owner,
-		&input.name,
-	)
-	.await
-	.map_err(|source| {
-		let err = HandlerError::RequestFail { source };
-		(StatusCode::BAD_GATEWAY, err.to_string())
-	})?;
+pub async fn sync_repo_stargazers(conn: &mut PgConnection, q: &RepoQuery) -> Result<(), SyncRepoStargazersError> {
+    // 1. First page guarantees repo’s existence.
+    let first = fetch_chunk_of_stars_from_repo(&q.token, &q.owner, &q.name, None)
+		.await
+		.map_err(|source| SyncRepoStargazersError::FetchChunkOfStarsFromRepo{ source })?;
 
 
-	let json = serde_json::to_string(&stars_per_day)
-		.map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+	let new_repo = NewRepository {
+        id: Uuid::new_v4(),
+        owner: &q.owner,
+        name:  &q.name,
+    };
 
-	Response::builder()
-		.status(StatusCode::OK)
-		.header("Content-Type", "application/json")
-		.body(Body::from(json))
-		.map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))
+    let repo = insert_repository(conn, &new_repo)
+		.map_err(|source| SyncRepoStargazersError::InsertRepository{ source })?;
+
+    // 3. Persist every page of stars.
+    let fetched_at = Utc::now().naive_utc();
+    upsert_stars(conn, &repo.id, &first.stars, fetched_at).map_err(|source| SyncRepoStargazersError::UpsertStars{ source })?;
+
+    let mut info = first.page_info;
+    let mut cursor = info.end_cursor;
+
+    while info.has_next_page {
+        let page = fetch_chunk_of_stars_from_repo(&q.token, &q.owner, &q.name, cursor.as_deref()).await?;
+        upsert_stars(conn, &repo.id, &page.stars, fetched_at).map_err(|source| SyncRepoStargazersError::UpsertStars{ source })?;
+
+        info = page.page_info;
+        cursor = info.end_cursor;
+    }
+    Ok(())
+}
+
+struct Page {
+    stars:     Vec<StargazerEdge>,
+    page_info: PageInfo,
 }
 
 #[derive(Debug, Error)]
-pub enum FetchAndAggregateStargazersPerDayError {
+pub enum FetchChunkOfStarsFromRepoError {
 	#[error("FetchRepoStargazers: {source}")]
-	FetchRepoStargazers {
-		#[from]
-		source: FetchRepoStargazersError,
+	FetchRepoStargazers{
+		#[from] 
+		source: FetchRepoStargazersError
 	},
-
-	#[error("DeserializeResponseBody: {source}")]
-	DeserializeResponseBody {
-		#[from]
-		source: serde_json::Error,
+	#[error("ResponseBodyDeserialization: {source}")]
+	ResponseBodyDeserialization{
+		#[from] 
+		source: serde_json::Error
 	},
-
-	#[error("Missing or malformed repository field in GraphQL response")]
-	RepositoryFieldMissing,
-
-	#[error("Missing or malformed pageInfo in GraphQL response")]
-	PageInfoInvalid,
+	#[error("RepositoryNotFound: {owner}/{name}")]
+	RepositoryNotFound {
+		owner: String,
+		name:  String,
+	},
 }
 
-pub type StargazersAggregation = BTreeMap<NaiveDate, usize>;
+async fn fetch_chunk_of_stars_from_repo(
+    token: &str,
+    owner: &str,
+    name:  &str,
+    cursor: Option<&str>,
+) -> Result<Page, FetchChunkOfStarsFromRepoError> {
+    let GitHubGraphQLResult { body, .. } =
+        fetch_repo_stargazers(token, owner, name, cursor).await.map_err(|source| FetchChunkOfStarsFromRepoError::FetchRepoStargazers{ source })?;
 
-pub async fn fetch_and_aggregate_stargazers_per_day(
-	token: &str,
-	owner: &str,
-	name: &str,
-) -> Result<StargazersAggregation, FetchAndAggregateStargazersPerDayError> {
-	let mut aggregation = BTreeMap::new();
-	let mut cursor = None;
+    let parsed: GraphQLResponse = serde_json::from_str(&body).map_err(|source| FetchChunkOfStarsFromRepoError::ResponseBodyDeserialization{ source })?;
+    let repo = parsed
+        .data
+        .repository
+        .ok_or_else(|| FetchChunkOfStarsFromRepoError::RepositoryNotFound {
+            owner: owner.into(),
+            name:  name.into(),
+        })?;
 
-	loop {
-		let GitHubGraphQLResult { body, .. } =
-			fetch_repo_stargazers(token, owner, name, cursor.as_deref()).await?;
-
-		let parsed: GraphQLResponse = serde_json::from_str(&body)?;
-		let repository = parsed
-			.data
-			.repository
-			.ok_or(FetchAndAggregateStargazersPerDayError::RepositoryFieldMissing)?;
-
-		for edge in repository.stargazers.edges {
-			let day = edge.starred_at.date_naive();
-			*aggregation.entry(day).or_insert(0) += 1;
-		}
-
-		let page_info = repository.stargazers.page_info;
-		if !page_info.has_next_page {
-			break;
-		}
-
-		cursor = page_info.end_cursor;
-	}
-
-	Ok(aggregation)
+    Ok(Page {
+        stars: repo.stargazers.edges,
+        page_info: repo.stargazers.page_info,
+    })
 }
 
+#[derive(Debug, Error)]
+pub enum UpsertStarsError {
+	#[error("InsertStar: {source}")]
+	InsertStar{
+		#[from] 
+		source: InsertStarError
+	},
+}
 
+#[inline]
+fn upsert_stars(
+    conn: &mut PgConnection,
+    repo_id: &Uuid,
+    stars: &[StargazerEdge],
+    fetched_at: NaiveDateTime,
+) -> Result<(), UpsertStarsError> {
+    for star in stars {
+        let new_star = NewStar {
+            repository_id: *repo_id,
+            stargazer:     &star.node.login,
+            starred_at:    star.starred_at.naive_utc(),
+            fetched_at,
+        };
+
+        insert_star(conn, &new_star).map_err(|source|UpsertStarsError::InsertStar { source })?;
+    }
+
+    Ok(())
+}

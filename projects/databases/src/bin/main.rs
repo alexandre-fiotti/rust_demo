@@ -2,15 +2,16 @@ use std::net::SocketAddr;
 
 use anyhow::Result;
 use axum::{
-	http::StatusCode,
-	response::IntoResponse,
-	routing::{post},
-	serve, Router,
+	http::StatusCode, response::IntoResponse, routing::post, serve, Extension, Router
 };
 use utils_trace::tracing_init;
 use thiserror::Error;
 use tracing::{error, info};
 use projects_databases::endpoints::github::repo_stars::update::index::handler as github_repo_stars_update_handler;
+use diesel::{r2d2::{ConnectionManager, Pool}, PgConnection};
+use dotenvy::dotenv;
+
+pub type PgPool = Pool<ConnectionManager<PgConnection>>;
 
 #[derive(Debug, Error)]
 pub enum MainError {
@@ -19,6 +20,21 @@ pub enum MainError {
         #[source]
         source: utils_trace::TracingInitError,
     },
+	#[error("EnvVarSetup: {source}")]
+	EnvVarSetup {
+		#[source]
+		source: dotenvy::Error,
+	},
+	#[error("DbEnvVar: {source}")]
+	DbEnvVar {
+		#[source]
+		source: std::env::VarError,
+	},
+	#[error("DbPoolBuild: {source}")]
+	DbPoolBuild {
+		#[source]
+		source: r2d2::Error,
+	},
 	#[error("TcpListenerBind: {source}")]
 	TcpListenerBind {
 		#[source]
@@ -35,10 +51,19 @@ pub enum MainError {
 async fn main() -> Result<(), MainError> {
     tracing_init("info")
         .map_err(|source| MainError::TracingInit { source })?;
+	
+	// Load environment variables from .env file
+	dotenv().map_err(|source| MainError::EnvVarSetup { source })?;
+
+	// Set up the database connection pool
+	let db_pool = PgPool::builder()
+    	.build(ConnectionManager::new(std::env::var("DATABASE_URL").map_err(|source| MainError::DbEnvVar { source })?))
+    	.map_err(|source| MainError::DbPoolBuild { source })?;
  
 	// Set up the router
 	let app = Router::new()
-		.route("/github/repo_stars/update", post(github_repo_stars_update_handler));
+		.route("/github/repo_stars/update", post(github_repo_stars_update_handler))
+		.layer(Extension(db_pool.clone()));
 
 	let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
 	let listener = tokio::net::TcpListener::bind(addr)

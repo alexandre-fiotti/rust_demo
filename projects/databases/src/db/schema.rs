@@ -10,11 +10,9 @@ diesel::table! {
 }
 
 diesel::table! {
-    stars (id) {
-        id -> Uuid,
+    stars (repository_id, stargazer) {
         repository_id -> Uuid,
         stargazer -> Text,
-        email -> Nullable<Text>,
         starred_at -> Timestamp,
         fetched_at -> Timestamp,
     }
