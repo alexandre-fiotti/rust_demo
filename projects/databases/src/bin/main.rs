@@ -7,7 +7,7 @@ use axum::{
 use utils_trace::tracing_init;
 use thiserror::Error;
 use tracing::{error, info};
-use projects_databases::endpoints::github::repo_stars::update::index::handler as github_repo_stars_update_handler;
+use projects_databases::endpoints::github::repo_stars::{update::index::handler as github_repo_stars_update_handler, read_per_day::index::handler as github_repo_stars_read_per_day_handler};
 use diesel::{r2d2::{ConnectionManager, Pool}, PgConnection};
 use dotenvy::dotenv;
 
@@ -63,6 +63,7 @@ async fn main() -> Result<(), MainError> {
 	// Set up the router
 	let app = Router::new()
 		.route("/github/repo_stars/update", post(github_repo_stars_update_handler))
+		.route("/github/repo_stars/read_per_day", post(github_repo_stars_read_per_day_handler))
 		.layer(Extension(db_pool.clone()));
 
 	let addr = SocketAddr::from(([0, 0, 0, 0], 8000));

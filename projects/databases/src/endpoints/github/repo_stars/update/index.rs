@@ -61,7 +61,10 @@ pub async fn handler(
     Extension(pool): Extension<PgPool>,
     Json(input): Json<RepoQuery>,
 ) -> impl IntoResponse {
- 	let mut conn = pool.get().map_err(|source| { HandlerError::GetConnectionFromPool{ source }})?;
+ 	let mut conn = pool.get()
+		.map_err(|source| { 
+			HandlerError::GetConnectionFromPool{ source }
+		})?;
 
     sync_repo_stargazers(&mut conn, &input).await.map_err(|source| { HandlerError::SyncRepoStargazers{ source } })
 }

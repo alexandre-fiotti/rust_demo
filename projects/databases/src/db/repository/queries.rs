@@ -29,7 +29,7 @@ pub enum GetRepositoryByNameError {
     },
 }
 
-pub fn get_repository_by_name(
+pub async fn get_repository_by_name(
     conn: &mut PgConnection,
     owner_val: &str,
     name_val: &str
