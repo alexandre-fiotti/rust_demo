@@ -1,4 +1,7 @@
 use std::net::SocketAddr;
+use std::sync::Arc;
+use std::collections::HashMap;
+use tokio::sync::Mutex;
 
 use anyhow::Result;
 use axum::{
@@ -7,7 +10,11 @@ use axum::{
 use utils_trace::tracing_init;
 use thiserror::Error;
 use tracing::{error, info};
-use projects_databases::endpoints::github::repo_stars::{update::index::handler as github_repo_stars_update_handler, read_daily_data::index::handler as github_repo_stars_read_daily_data_handler, read_daily_graph::index::handler as github_repo_stars_read_daily_graph_handler};
+use projects_databases::endpoints::github::repo_stars::{
+    update::index::{handler as github_repo_stars_update_handler, job_status_handler, JobTracker}, 
+    read_daily_data::index::handler as github_repo_stars_read_daily_data_handler, 
+    read_daily_graph::index::handler as github_repo_stars_read_daily_graph_handler
+};
 use diesel::{r2d2::{ConnectionManager, Pool}, PgConnection};
 use dotenvy::dotenv;
 
@@ -59,13 +66,18 @@ async fn main() -> Result<(), MainError> {
 	let db_pool = PgPool::builder()
     	.build(ConnectionManager::new(std::env::var("DATABASE_URL").map_err(|source| MainError::DbEnvVar { source })?))
     	.map_err(|source| MainError::DbPoolBuild { source })?;
+
+    // Set up job tracker
+    let job_tracker: JobTracker = Arc::new(Mutex::new(HashMap::new()));
  
 	// Set up the router
 	let app = Router::new()
 		.route("/github/repo_stars/update", post(github_repo_stars_update_handler))
+		.route("/github/repo_stars/job_status/{job_id}", get(job_status_handler))
 		.route("/github/repo_stars/read_daily_data", get(github_repo_stars_read_daily_data_handler))
 		.route("/github/repo_stars/read_daily_graph", post(github_repo_stars_read_daily_graph_handler))
-		.layer(Extension(db_pool.clone()));
+		.layer(Extension(db_pool.clone()))
+		.layer(Extension(job_tracker));
 
 	let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
 	let listener = tokio::net::TcpListener::bind(addr)

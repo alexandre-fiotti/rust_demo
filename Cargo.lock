@@ -1379,6 +1379,7 @@ dependencies = [
  "interfaces_github_stargazers",
  "plotters",
  "r2d2",
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror",

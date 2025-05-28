@@ -1,7 +1,7 @@
 use thiserror::Error;
 use uuid::Uuid;
 use chrono::NaiveDate;
-use diesel::{dsl::{count_star, sql}, prelude::*, sql_types::Date};
+use diesel::{dsl::{count_star, sql}, prelude::*, sql_types::Date, upsert::excluded};
 use crate::db::{star::models::*, schema::stars::dsl::*};
 
 #[derive(Debug, Error)]
@@ -21,6 +21,31 @@ pub fn insert_star(
         .values(new)
         .get_result(conn)
         .map_err(|source| InsertStarError::InsertStar{ source })
+}
+
+#[derive(Debug, Error)]
+pub enum InsertStarsBatchError {
+    #[error("InsertStarsBatch: {source}")]
+    InsertStarsBatch{ 
+        #[from]
+        source: diesel::result::Error 
+    },
+}
+
+pub fn insert_stars_batch(
+    conn: &mut PgConnection,
+    new_stars: &[NewStar]
+) -> Result<Vec<Star>, InsertStarsBatchError> {
+    diesel::insert_into(stars)
+        .values(new_stars)
+        .on_conflict((repository_id, stargazer))
+        .do_update()
+        .set((
+            starred_at.eq(excluded(starred_at)),
+            fetched_at.eq(excluded(fetched_at)),
+        ))
+        .get_results(conn)
+        .map_err(|source| InsertStarsBatchError::InsertStarsBatch{ source })
 }
 
 #[derive(Debug, Error)]
