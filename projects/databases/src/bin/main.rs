@@ -64,7 +64,7 @@ async fn main() -> Result<(), MainError> {
 	let app = Router::new()
 		.route("/github/repo_stars/update", post(github_repo_stars_update_handler))
 		.route("/github/repo_stars/read_daily_data", get(github_repo_stars_read_daily_data_handler))
-		.route("/github/repo_stars/read_daily_graph", get(github_repo_stars_read_daily_graph_handler))
+		.route("/github/repo_stars/read_daily_graph", post(github_repo_stars_read_daily_graph_handler))
 		.layer(Extension(db_pool.clone()));
 
 	let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
