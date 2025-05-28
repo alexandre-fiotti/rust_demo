@@ -1,3 +1,8 @@
+//! GitHub GraphQL API client for stargazer data
+//! 
+//! Fetches repository stars in batches of 100 using cursor-based pagination.
+//! Requires GitHub token with repo read access.
+
 use chrono::{DateTime, Utc};
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;

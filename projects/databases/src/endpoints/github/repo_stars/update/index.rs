@@ -12,6 +12,7 @@ use serde::Deserialize;
 use thiserror::Error;
 use uuid::Uuid;
 use diesel::PgConnection;
+use std::env;
 
 use crate::db::{
 	    repository::{
@@ -36,12 +37,15 @@ pub enum HandlerError {
 		#[from] 
 		source: SyncRepoStargazersError 
 	},
+    #[error("MissingGithubToken")]
+    MissingGithubToken,
 }
 
 impl IntoResponse for HandlerError {
 	fn into_response(self) -> axum::response::Response {
 		match self {
 			HandlerError::SyncRepoStargazers{ source } => (StatusCode::INTERNAL_SERVER_ERROR, source.to_string()).into_response(),
+            HandlerError::MissingGithubToken => (StatusCode::INTERNAL_SERVER_ERROR, "GITHUB_TOKEN environment variable is not set").into_response(),
             _ => StatusCode::NOT_FOUND.into_response(),
         }
     }
@@ -50,7 +54,6 @@ impl IntoResponse for HandlerError {
 /// JSON payload expected by the endpoint.
 #[derive(Deserialize)]
 pub struct RepoQuery {
-	token: String,
 	owner: String,
 	name:  String,
 }
@@ -61,12 +64,15 @@ pub async fn handler(
     Extension(pool): Extension<PgPool>,
     Json(input): Json<RepoQuery>,
 ) -> impl IntoResponse {
- 	let mut conn = pool.get()
+    let token = env::var("GITHUB_TOKEN")
+        .map_err(|_| HandlerError::MissingGithubToken)?;
+
+    let mut conn = pool.get()
 		.map_err(|source| { 
 			HandlerError::GetConnectionFromPool{ source }
 		})?;
 
-    sync_repo_stargazers(&mut conn, &input).await.map_err(|source| { HandlerError::SyncRepoStargazers{ source } })
+    sync_repo_stargazers(&mut conn, &token, &input).await.map_err(|source| { HandlerError::SyncRepoStargazers{ source } })
 }
 
 #[derive(Debug, Error)]
@@ -88,9 +94,10 @@ pub enum SyncRepoStargazersError {
 	},
 }
 
-pub async fn sync_repo_stargazers(conn: &mut PgConnection, q: &RepoQuery) -> Result<(), SyncRepoStargazersError> {
-    // 1. First page guarantees repo’s existence.
-    let first = fetch_chunk_of_stars_from_repo(&q.token, &q.owner, &q.name, None)
+/// Fetches and stores all stars for a GitHub repository
+pub async fn sync_repo_stargazers(conn: &mut PgConnection, token: &str, q: &RepoQuery) -> Result<(), SyncRepoStargazersError> {
+    // First page guarantees repo's existence.
+    let first = fetch_chunk_of_stars_from_repo(token, &q.owner, &q.name, None)
 		.await
 		.map_err(|source| SyncRepoStargazersError::FetchChunkOfStarsFromRepo{ source })?;
 
@@ -104,7 +111,7 @@ pub async fn sync_repo_stargazers(conn: &mut PgConnection, q: &RepoQuery) -> Res
     let repo = insert_repository(conn, &new_repo)
 		.map_err(|source| SyncRepoStargazersError::InsertRepository{ source })?;
 
-    // 3. Persist every page of stars.
+    // Persist every page of stars.
     let fetched_at = Utc::now().naive_utc();
     upsert_stars(conn, &repo.id, &first.stars, fetched_at).map_err(|source| SyncRepoStargazersError::UpsertStars{ source })?;
 
@@ -112,7 +119,7 @@ pub async fn sync_repo_stargazers(conn: &mut PgConnection, q: &RepoQuery) -> Res
     let mut cursor = info.end_cursor;
 
     while info.has_next_page {
-        let page = fetch_chunk_of_stars_from_repo(&q.token, &q.owner, &q.name, cursor.as_deref()).await?;
+        let page = fetch_chunk_of_stars_from_repo(token, &q.owner, &q.name, cursor.as_deref()).await?;
         upsert_stars(conn, &repo.id, &page.stars, fetched_at).map_err(|source| SyncRepoStargazersError::UpsertStars{ source })?;
 
         info = page.page_info;
