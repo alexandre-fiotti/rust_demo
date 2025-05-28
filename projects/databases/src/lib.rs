@@ -6,3 +6,4 @@
 
 pub mod endpoints;
 pub mod db;
+pub mod utils;
