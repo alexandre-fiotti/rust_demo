@@ -1,2 +1,2 @@
 pub mod update;
-pub mod read_per_day;
+pub mod read_daily_data;

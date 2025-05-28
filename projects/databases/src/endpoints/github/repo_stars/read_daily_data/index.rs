@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Extension, Json},
+    extract::{Extension, Query, Json},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -59,7 +59,7 @@ pub struct RepoQuery {
 /// Axum handler: POST /sync-stars
 pub async fn handler(
     Extension(pool): Extension<PgPool>,
-    Json(input): Json<RepoQuery>,
+    Query(input): Query<RepoQuery>,
 ) -> impl IntoResponse {
  	let mut conn = match pool.get() {
     	Ok(c) => c,
